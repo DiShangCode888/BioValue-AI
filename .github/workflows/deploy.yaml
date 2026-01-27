@@ -1,0 +1,167 @@
+# BioValue-AI CD Pipeline
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  GO_VERSION: '1.22'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # 构建并推送镜像
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/biovalue-ai/go-worker
+            ${{ env.REGISTRY }}/biovalue-ai/llm-bridge
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            
+      - name: Build and Push Go Worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: build/Dockerfile.go-worker
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/biovalue-ai/go-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/biovalue-ai/go-worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            
+      - name: Build and Push LLM Bridge
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: build/Dockerfile.llm-bridge
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/biovalue-ai/llm-bridge:${{ github.sha }}
+            ${{ env.REGISTRY }}/biovalue-ai/llm-bridge:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 部署到 Staging
+  deploy-staging:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+          
+      - name: Deploy to Staging
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl set image deployment/biovalue-worker \
+            worker=${{ env.REGISTRY }}/biovalue-ai/go-worker:${{ github.sha }} \
+            -n biovalue-staging
+          kubectl set image deployment/llm-bridge \
+            llm-bridge=${{ env.REGISTRY }}/biovalue-ai/llm-bridge:${{ github.sha }} \
+            -n biovalue-staging
+          kubectl rollout status deployment/biovalue-worker -n biovalue-staging --timeout=5m
+          kubectl rollout status deployment/llm-bridge -n biovalue-staging --timeout=5m
+          
+      - name: Verify Deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl get pods -n biovalue-staging -l app=biovalue-worker
+          kubectl get pods -n biovalue-staging -l app=llm-bridge
+
+  # 部署到 Production
+  deploy-production:
+    needs: [build-and-push, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+          
+      - name: Deploy to Production
+        run: |
+          export KUBECONFIG=kubeconfig
+          # 使用 tag 版本或 SHA
+          VERSION=${{ github.ref_name }}
+          if [[ ! $VERSION =~ ^v ]]; then
+            VERSION=${{ github.sha }}
+          fi
+          
+          kubectl set image deployment/biovalue-worker \
+            worker=${{ env.REGISTRY }}/biovalue-ai/go-worker:$VERSION \
+            -n biovalue-production
+          kubectl set image deployment/llm-bridge \
+            llm-bridge=${{ env.REGISTRY }}/biovalue-ai/llm-bridge:$VERSION \
+            -n biovalue-production
+          kubectl rollout status deployment/biovalue-worker -n biovalue-production --timeout=10m
+          kubectl rollout status deployment/llm-bridge -n biovalue-production --timeout=10m
+          
+      - name: Verify Production Deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl get pods -n biovalue-production -l app=biovalue-worker
+          kubectl get pods -n biovalue-production -l app=llm-bridge
+          
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+

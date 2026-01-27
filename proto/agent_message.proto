@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package biovalue.agent;
+
+option go_package = "github.com/biovalue-ai/biovalue/proto/agentpb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Agent 输出的标准消息格式
+message AgentOutput {
+    string agent_id = 1;
+    string trace_id = 2;
+    OutputStatus status = 3;
+    
+    oneof result {
+        FinancialResult financial = 10;
+        PipelineResult pipeline = 11;
+        ClinicalResult clinical = 12;
+        MarketResult market = 13;
+        ValuationResult valuation = 14;
+        ReportResult report = 15;
+    }
+    
+    ReasoningChain reasoning = 20;
+    repeated ToolInvocation tools_used = 21;
+    UsageMetrics usage = 22;
+    
+    google.protobuf.Timestamp created_at = 30;
+    google.protobuf.Timestamp expires_at = 31;
+}
+
+enum OutputStatus {
+    OUTPUT_STATUS_UNSPECIFIED = 0;
+    OUTPUT_STATUS_SUCCESS = 1;
+    OUTPUT_STATUS_PARTIAL = 2;
+    OUTPUT_STATUS_FAILED = 3;
+    OUTPUT_STATUS_REQUIRES_INTERVENTION = 4;
+}
+
+// ============== Financial Agent Result ==============
+
+message FinancialResult {
+    string ticker = 1;
+    FinancialMetrics metrics = 2;
+    int32 health_score = 3;
+    string risk_warning = 4;
+    string source_url = 5;
+}
+
+message FinancialMetrics {
+    double cash_on_hand = 1;
+    double annual_burn_rate = 2;
+    double cash_runway_months = 3;
+    double r_and_d_expenses = 4;
+    double operating_cash_flow = 5;
+}
+
+// ============== Pipeline Agent Result ==============
+
+message PipelineResult {
+    string ticker = 1;
+    repeated DrugPipeline pipelines = 2;
+    google.protobuf.Timestamp data_as_of = 3;
+}
+
+message DrugPipeline {
+    string drug_name = 1;
+    string target = 2;
+    string indication = 3;
+    ClinicalPhase phase = 4;
+    string modality = 5;
+    string nct_id = 6;
+}
+
+enum ClinicalPhase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_PRECLINICAL = 1;
+    PHASE_1 = 2;
+    PHASE_1_2 = 3;
+    PHASE_2 = 4;
+    PHASE_2_3 = 5;
+    PHASE_3 = 6;
+    PHASE_APPROVED = 7;
+}
+
+// ============== Clinical Agent Result ==============
+
+message ClinicalResult {
+    string ticker = 1;
+    repeated CoreAsset core_assets = 2;
+}
+
+message CoreAsset {
+    string drug_name = 1;
+    double pos_score = 2;
+    string competitive_landscape = 3;
+    string clinical_advantage = 4;
+    CompetitiveRating rating = 5;
+}
+
+enum CompetitiveRating {
+    COMPETITIVE_RATING_UNSPECIFIED = 0;
+    BEST_IN_CLASS = 1;
+    FIRST_IN_CLASS = 2;
+    ME_TOO = 3;
+    BELOW_AVERAGE = 4;
+}
+
+// ============== Market Agent Result ==============
+
+message MarketResult {
+    string ticker = 1;
+    MarketForecast domestic = 2;
+    BDForecast bd_outlook = 3;
+    double risk_adjusted_revenue = 4;
+}
+
+message MarketForecast {
+    double tam = 1;               // Total Addressable Market
+    double penetration_rate = 2;
+    double peak_sales = 3;
+    string currency = 4;
+}
+
+message BDForecast {
+    double upfront_potential = 1;
+    double milestone_potential = 2;
+    double royalty_rate = 3;
+    string target_region = 4;
+}
+
+// ============== Valuation Agent Result ==============
+
+message ValuationResult {
+    ValuationScenario bull_case = 1;
+    ValuationScenario base_case = 2;
+    ValuationScenario bear_case = 3;
+    ValuationAssumptions assumptions = 4;
+}
+
+message ValuationScenario {
+    double value_1y = 1;
+    double value_3y = 2;
+    double value_5y = 3;
+    double value_10y = 4;
+    string rationale = 5;
+}
+
+message ValuationAssumptions {
+    double wacc = 1;
+    double terminal_growth = 2;
+    double avg_pos = 3;
+    string methodology = 4;
+}
+
+// ============== Report Agent Result ==============
+
+message ReportResult {
+    string ticker = 1;
+    string markdown_content = 2;
+    repeated string key_risks = 3;
+    string recommendation = 4;
+    google.protobuf.Timestamp generated_at = 5;
+}
+
+// ============== Common Types ==============
+
+message ReasoningChain {
+    string thought_process = 1;
+    repeated string key_insights = 2;
+    float confidence = 3;
+    repeated string uncertainties = 4;
+}
+
+message ToolInvocation {
+    string tool_name = 1;
+    string mcp_server = 2;
+    google.protobuf.Struct input = 3;
+    google.protobuf.Struct output = 4;
+    int64 duration_ms = 5;
+    bool success = 6;
+}
+
+message UsageMetrics {
+    int32 prompt_tokens = 1;
+    int32 completion_tokens = 2;
+    double cost_usd = 3;
+    string model = 4;
+}
+

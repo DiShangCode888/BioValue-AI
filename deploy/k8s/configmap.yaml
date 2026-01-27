@@ -1,0 +1,122 @@
+# BioValue-AI ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: biovalue-config
+  namespace: biovalue
+data:
+  temporal.namespace: "biovalue"
+  temporal.task_queue: "biovalue-main"
+  redis.address: "redis-cluster.biovalue:6379"
+  milvus.address: "milvus.biovalue:19530"
+  
+  config.yaml: |
+    system:
+      env: production
+      service_name: biovalue-ai
+      version: "1.0.0"
+      max_concurrency: 50
+      shutdown_timeout: 30s
+
+    temporal:
+      address: "temporal-frontend.temporal:7233"
+      namespace: "biovalue"
+      task_queue: "biovalue-main"
+      worker:
+        max_concurrent_activities: 20
+        max_concurrent_workflows: 10
+        activity_poll_interval: 100ms
+      retry:
+        initial_interval: 5s
+        backoff_coefficient: 2.0
+        maximum_interval: 1m
+        maximum_attempts: 5
+
+    storage:
+      redis:
+        address: "redis-cluster.biovalue:6379"
+        password: "${REDIS_PASSWORD}"
+        db: 0
+        pool_size: 100
+        min_idle_conns: 10
+        dial_timeout: 5s
+        read_timeout: 3s
+        write_timeout: 3s
+        
+      vector_db:
+        type: milvus
+        address: "milvus.biovalue:19530"
+        collection: "biovalue_embeddings"
+        dimension: 1536
+        index_type: IVF_FLAT
+        metric_type: IP
+
+    llm:
+      provider: openai
+      model: gpt-4-turbo
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
+      timeout: 120s
+      max_retries: 3
+      rate_limit:
+        requests_per_minute: 60
+        tokens_per_minute: 100000
+      fallback:
+        enabled: true
+        provider: deepseek
+        model: deepseek-chat
+        api_key: "${DEEPSEEK_API_KEY}"
+
+    mcp:
+      discovery:
+        type: k8s
+      servers: []
+
+    observability:
+      tracing:
+        enabled: true
+        exporter: otlp
+        endpoint: "otel-collector.observability:4317"
+        sample_rate: 0.1
+        
+      metrics:
+        enabled: true
+        port: 9090
+        path: /metrics
+        
+      logging:
+        level: info
+        format: json
+        output: stdout
+
+    security:
+      tls:
+        enabled: true
+        cert_file: /etc/ssl/certs/server.crt
+        key_file: /etc/ssl/certs/server.key
+        ca_file: /etc/ssl/certs/ca.crt
+        
+      vault:
+        enabled: true
+        address: "https://vault.vault:8200"
+        auth_method: kubernetes
+        mount_path: "biovalue"
+        
+      audit:
+        enabled: true
+        storage: s3
+        bucket: biovalue-audit-logs
+        encryption: true
+---
+# Secrets (示例，生产环境应使用 Sealed Secrets 或 External Secrets)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: biovalue-secrets
+  namespace: biovalue
+type: Opaque
+stringData:
+  openai-api-key: "sk-your-openai-api-key"
+  deepseek-api-key: "sk-your-deepseek-api-key"
+  redis-password: "your-redis-password"
+

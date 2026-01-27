@@ -1,0 +1,145 @@
+# BioValue-AI CI Pipeline
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  GO_VERSION: '1.22'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Go 测试
+  test-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          
+      - name: Download dependencies
+        run: go mod download
+          
+      - name: Run Go Tests
+        run: |
+          go test -v -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+          
+      - name: Check Coverage
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: $COVERAGE%"
+          if (( $(echo "$COVERAGE < 60" | bc -l) )); then
+            echo "Coverage $COVERAGE% is below 60%"
+            exit 1
+          fi
+          
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.out
+          flags: go
+
+  # Python 测试
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio ruff mypy
+          
+      - name: Run Python Tests
+        run: |
+          pytest tests/ -v --cov=llm_bridge --cov-report=xml || true
+          
+      - name: Lint Python
+        run: |
+          ruff check llm_bridge/ || true
+
+  # Go Lint
+  lint-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # 构建检查
+  build:
+    needs: [test-go, test-python, lint-go]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Build Go Worker
+        run: |
+          CGO_ENABLED=0 GOOS=linux go build -o bin/worker ./cmd/worker
+          
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build Go Worker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: build/Dockerfile.go-worker
+          push: false
+          tags: biovalue/go-worker:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Build LLM Bridge Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: build/Dockerfile.llm-bridge
+          push: false
+          tags: biovalue/llm-bridge:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 安全扫描
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # 不阻止 CI，仅报告
+

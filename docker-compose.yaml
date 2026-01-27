@@ -1,0 +1,198 @@
+# BioValue-AI Docker Compose 配置
+# 本地开发环境
+
+version: '3.8'
+
+services:
+  # Temporal Server
+  temporal:
+    image: temporalio/auto-setup:1.22
+    container_name: biovalue-temporal
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      - postgres
+    networks:
+      - biovalue-network
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:2.22.0
+    container_name: biovalue-temporal-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
+    networks:
+      - biovalue-network
+
+  # PostgreSQL (Temporal 存储)
+  postgres:
+    image: postgres:15-alpine
+    container_name: biovalue-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - biovalue-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: biovalue-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - biovalue-network
+
+  # Milvus (Vector DB)
+  milvus:
+    image: milvusdb/milvus:v2.3.0
+    container_name: biovalue-milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    depends_on:
+      - etcd
+      - minio
+    volumes:
+      - milvus-data:/var/lib/milvus
+    networks:
+      - biovalue-network
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: biovalue-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+    volumes:
+      - etcd-data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - biovalue-network
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: biovalue-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - minio-data:/minio_data
+    command: minio server /minio_data
+    networks:
+      - biovalue-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Go Worker
+  go-worker:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.go-worker
+    container_name: biovalue-go-worker
+    ports:
+      - "8081:8080"
+      - "9090:9090"
+    environment:
+      - CONFIG_PATH=/etc/biovalue/config.yaml
+      - TEMPORAL_ADDRESS=temporal:7233
+      - REDIS_ADDRESS=redis:6379
+      - LLM_BRIDGE_ADDRESS=llm-bridge:50051
+    depends_on:
+      - temporal
+      - redis
+      - llm-bridge
+    volumes:
+      - ./config:/etc/biovalue:ro
+    networks:
+      - biovalue-network
+
+  # LLM Bridge
+  llm-bridge:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.llm-bridge
+    container_name: biovalue-llm-bridge
+    ports:
+      - "50051:50051"
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - biovalue-network
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: biovalue-prometheus
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - biovalue-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: biovalue-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - biovalue-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  milvus-data:
+  etcd-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  biovalue-network:
+    driver: bridge
+
