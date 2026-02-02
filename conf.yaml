@@ -1,0 +1,103 @@
+# BioValue-AI 配置文件
+# 复制此文件为 conf.yaml 并填入实际配置
+
+# =============================================================================
+# LLM 模型配置 (解耦设计 - 支持多提供商切换)
+# =============================================================================
+
+# 推理模型 - 用于复杂分析和决策
+REASONING_MODEL:
+  model: "deepseek-reasoner"
+  base_url: "https://api.deepseek.com/v1"
+  api_key: "${DEEPSEEK_API_KEY}"
+  temperature: 0.1
+  max_tokens: 8192
+
+# 基础模型 - 用于一般对话和简单任务
+BASIC_MODEL:
+  model: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1"
+  api_key: "${OPENAI_API_KEY}"
+  temperature: 0.7
+  max_tokens: 4096
+
+# 提取模型 - 用于结构化数据提取
+EXTRACTION_MODEL:
+  model: "gpt-4o"
+  base_url: "https://api.openai.com/v1"
+  api_key: "${OPENAI_API_KEY}"
+  temperature: 0.0
+  max_tokens: 4096
+
+# 嵌入模型 - 用于向量化
+EMBEDDING_MODEL:
+  model: "text-embedding-3-small"
+  base_url: "https://api.openai.com/v1"
+  api_key: "${OPENAI_API_KEY}"
+
+# =============================================================================
+# Neo4j 图数据库配置
+# =============================================================================
+NEO4J:
+  uri: "bolt://localhost:7687"
+  username: "neo4j"
+  password: "${NEO4J_PASSWORD}"
+  database: "biovalue"
+
+# =============================================================================
+# Redis 缓存配置
+# =============================================================================
+REDIS:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: "${REDIS_PASSWORD}"
+
+# =============================================================================
+# 向量数据库配置 (ChromaDB)
+# =============================================================================
+VECTOR_DB:
+  type: "chroma"
+  persist_directory: "./data/chroma"
+  collection_name: "biovalue_docs"
+
+# =============================================================================
+# API 服务配置
+# =============================================================================
+API:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+
+# =============================================================================
+# 数据摄入配置
+# =============================================================================
+INGESTION:
+  # ClinicalTrials.gov API
+  clinical_trials_api: "https://clinicaltrials.gov/api/v2"
+  
+  # 爬虫配置
+  crawler:
+    max_concurrent: 5
+    request_delay: 1.0  # 秒
+    user_agent: "BioValue-AI/1.0"
+  
+  # 文档解析配置
+  parser:
+    supported_formats:
+      - ".pdf"
+      - ".docx"
+      - ".txt"
+    max_file_size: 52428800  # 50MB
+
+# =============================================================================
+# LangGraph 工作流配置
+# =============================================================================
+WORKFLOW:
+  max_iterations: 10
+  recursion_limit: 50
+  checkpoint_enabled: true
+

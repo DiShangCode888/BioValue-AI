@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "biovalue-ai"
+version = "0.1.0"
+description = "创新药全要素知识图谱系统 - 基于 LangGraph 架构的智能投资分析平台"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "BioValue Team" }
+]
+keywords = ["biotech", "knowledge-graph", "langgraph", "neo4j", "investment-analysis"]
+
+dependencies = [
+    # Web Framework
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.1",
+    "sse-starlette>=1.6.5",
+    
+    # LangChain & LangGraph
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langgraph>=0.3.0",
+    
+    # LLM Providers
+    "openai>=1.0.0",
+    "httpx>=0.28.0",
+    
+    # Database
+    "neo4j>=5.0.0",
+    "redis>=5.0.0",
+    
+    # Vector Store
+    "chromadb>=0.4.0",
+    
+    # Data Processing
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    
+    # Document Parsing
+    "pymupdf>=1.24.0",
+    "python-multipart>=0.0.9",
+    
+    # HTTP Client
+    "aiohttp>=3.9.0",
+    
+    # Utilities
+    "pyyaml>=6.0.0",
+    "tenacity>=8.2.0",
+    "structlog>=24.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+biovalue = "src.api.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "sdk"]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+addopts = "-v --cov=src --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+

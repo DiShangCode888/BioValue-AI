@@ -1,0 +1,10 @@
+{
+  "dockerfile_lines": [],
+  "graphs": {
+    "biovalue_workflow": "./src/graph/builder.py:graph"
+  },
+  "python_version": "3.11",
+  "env": "./.env",
+  "dependencies": ["."]
+}
+
